@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Off & Leave Planner</title>
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--tx:#1d2420;--mut:#66706a;--ac:#2f6b4f;--bd:#dde2dc;--hl:#e6f2ea;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141815;--card:#1c211d;--tx:#e8ece8;--mut:#9aa59e;--ac:#6fc596;--bd:#2c342e;--hl:#23362b}}
+:root[data-theme="dark"]{--bg:#141815;--card:#1c211d;--tx:#e8ece8;--mut:#9aa59e;--ac:#6fc596;--bd:#2c342e;--hl:#23362b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.w{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 4px}.m{color:var(--mut);font-size:13px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin:12px 0}
+.tot{font-size:34px;font-weight:700;color:var(--ac)}
+.ctl{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
+input,select{background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;font:inherit}
+.r{display:grid;grid-template-columns:92px 84px 1fr;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--bd)}
+.r.on{background:var(--hl)}.r.we .d{color:var(--mut)}
+.d{font-weight:600}.t{font-size:12px;color:var(--mut)}
+.blk{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.sc{overflow-x:auto}
+.s2{background:color-mix(in srgb,var(--ac) 30%,transparent)}.s1{background:color-mix(in srgb,var(--ac) 12%,transparent)}
+.bt{border:1px solid var(--bd);background:var(--bg);color:var(--tx);border-radius:8px;padding:3px 8px;font:inherit;font-size:12px;cursor:pointer}
+.bt.p{background:var(--ac);color:var(--bg);border:0;font-weight:600}
+.pn{display:flex;gap:10px;flex-wrap:wrap;padding:8px 4px 10px;border-bottom:1px solid var(--bd)}
+.r2{display:grid;grid-template-columns:92px 44px 44px repeat(4,64px);gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--bd)}
+.bd{display:inline-block;background:var(--ac);color:var(--bg);border-radius:6px;padding:0 6px;font-size:12px;font-weight:700;margin-right:4px}
+.o{font-size:12px;color:var(--mut);line-height:1.5;margin-top:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useMemo,useEffect}=React;
+const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const parse=s=>{const[a,b,c]=s.split("-").map(Number);return new Date(a,b-1,c)};
+const at=(d,h,m=0,off=0)=>new Date(d.getFullYear(),d.getMonth(),d.getDate()+off,h,m);
+const p2=n=>String(n).padStart(2,"0");
+const fmt=d=>`${WD[d.getDay()]} ${p2(d.getDate())} ${MO[d.getMonth()]} ${p2(d.getHours())}${p2(d.getMinutes())}H`;
+const defPT=d=>[1,3,5].includes(d.getDay());
+const COST={AM:1,PM:1,FULL:2};
+const merge=a=>{const l=a.filter(x=>x[1]>x[0]).map(x=>[x[0],x[1]]).sort((p,q)=>p[0]-q[0]),o=[];
+  l.forEach(x=>{const z=o[o.length-1];if(z&&x[0]<=z[1]){if(x[1]>z[1])z[1]=x[1]}else o.push(x)});return o};
+const ulen=a=>merge(a).reduce((s,b)=>s+(b[1]-b[0])/36e5,0);
+const clip=(a,w)=>a.map(x=>[new Date(Math.max(x[0],w[0])),new Date(Math.min(x[1],w[1]))]).filter(x=>x[0]<x[1]);
+const fmtSegs=sg=>sg.length?sg.map(x=>fmt(x[0])+" → "+fmt(x[1])).join(" + "):"no extra time out";
+const fh=h=>`${Math.floor(h)}h${p2(Math.round((h%1)*60))}m`;
+const FIELDS=[["rep","Book in"],["mid","Morning ends"],["aft","Afternoon starts"],["eod","Book out"]];
+
+function TI({value,def,onCommit}){
+  const[v,setV]=useState(value.replace(":",""));
+  useEffect(()=>setV(value.replace(":","")),[value]);
+  const ok=/^([01]\d|2[0-3])[0-5]\d$/.test(v);
+  return <input inputMode="numeric" maxLength={4} value={v} style={{width:56,textAlign:"center",borderColor:value!==def?"var(--ac)":undefined,fontWeight:value!==def?700:400}}
+    onChange={e=>setV(e.target.value.replace(/\D/g,""))}
+    onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
+    onBlur={()=>ok?onCommit(v.slice(0,2)+":"+v.slice(2)):setV(value.replace(":",""))}/>;
+}
+
+function App(){
+  const [start,setStart]=useState("2026-10-07");
+  const [n,setN]=useState(35);
+  const [bal,setBal]=useState(5);
+  const [types,setTypes]=useState({});
+  const [hol,setHol]=useState({});
+  const [pt,setPt]=useState({});
+  const [cfg,setCfg]=useState({});
+  const [mode,setMode]=useState("plan");
+  const [rankBy,setRankBy]=useState("eff");
+  const isPT=d=>{const k=iso(d);return k in pt?pt[k]:(hol[k]?false:defPT(d))};
+  const wk=d=>[0,6].includes(d.getDay());
+  const dflt=(d,f)=>f==="rep"?(isPT(d)?"21:30":"07:30"):f==="eod"?(d.getDay()===5?"13:00":"17:00"):f==="mid"?"11:30":"13:00";
+  const tm=(d,f)=>(cfg[iso(d)]||{})[f]||dflt(d,f);
+  const T=(d,f,off=0)=>{const[h,m]=tm(d,f).split(":").map(Number);return at(d,h,m,off)};
+  const nx=d=>at(d,0,0,1),pv=d=>at(d,0,0,-1);
+  const repDT=d=>T(d,"rep",isPT(d)?-1:0);
+  const eodDT=d=>T(d,"eod");
+  const ivFor=(d,t)=>t==="AM"?[eodDT(pv(d)),T(d,"aft")]:t==="PM"?[T(d,"mid"),repDT(nx(d))]:[eodDT(pv(d)),repDT(nx(d))];
+
+  const days=useMemo(()=>{const s=parse(start);
+    return Array.from({length:n},(_,i)=>new Date(s.getFullYear(),s.getMonth(),s.getDate()+i))},[start,n]);
+
+  const R=useMemo(()=>{
+    const win=[days[0],at(days[n-1],0,0,1)],s=parse(start),b0=[];
+    for(let i=-2;i<n;i++){const d=new Date(s.getFullYear(),s.getMonth(),s.getDate()+i);
+      if(d.getDay()===5)b0.push([eodDT(d),at(d,21,30,2)])}
+    const base=clip(b0,win),iv={},hv=[];let u=0;
+    days.forEach(d=>{const k=iso(d);if(wk(d))return;
+      if(hol[k]){hv.push([k,[eodDT(pv(d)),repDT(nx(d))]]);return}
+      const t=types[k];if(!t||(d.getDay()===5&&t!=="FULL"))return;
+      iv[k]=ivFor(d,t);u+=COST[t]});
+    const all=base.concat(hv.map(h=>h[1]),Object.values(iv));
+    const blocks=merge(clip(all,win)),total=blocks.reduce((q,b)=>q+(b[1]-b[0])/36e5,0);
+    const segsFrom=(a,bl)=>{const out=[];merge(clip(a,win)).forEach(m=>{let c=m[0];
+      bl.forEach(b=>{if(b[1]<=c||b[0]>=m[1])return;if(b[0]>c)out.push([c,b[0]]);c=new Date(Math.max(c,b[1]))});
+      if(c<m[1])out.push([c,m[1]])});return out};
+    const segs=a=>segsFrom(a,blocks);
+    let acc=merge(base);const hs={};
+    hv.forEach(([k,x])=>{hs[k]=segsFrom([x],acc);acc=merge(acc.concat(clip([x],win)))});
+    const key=c=>rankBy==="eff"?c.e:c.g;
+    const gainOf=a=>ulen(clip(all.concat(a),win))-total;
+    const free=d=>d&&!wk(d)&&!types[iso(d)]&&!hol[iso(d)];
+    const O={},cands=[];
+    days.forEach((d,i)=>{if(!free(d))return;const k=iso(d);
+      const opts=(d.getDay()===5?["FULL"]:["AM","PM","FULL"]).map(t=>{const x=ivFor(d,t),g=gainOf([x]);return{t,iv:x,g,e:g/(COST[t]/2),sg:segs([x])}});
+      O[k]={opts};
+      const b=[...opts].sort((a,c)=>key(c)-key(a)||c.g-a.g)[0];
+      cands.push({ks:[k],ts:[b.t],g:b.g,e:b.e});
+      const d2=days[i+1];
+      if(free(d2)&&d.getDay()!==5&&d2.getDay()!==5){
+        const g=gainOf([ivFor(d,"PM"),ivFor(d2,"AM")]);
+        O[k].pair={g,e:g,sg:segs([ivFor(d,"PM"),ivFor(d2,"AM")])};
+        cands.push({ks:[k,iso(d2)],ts:["PM","AM"],g,e:g});}});
+    cands.sort((a,b)=>key(b)-key(a)||b.g-a.g);
+    const picked=[],usedK=new Set();
+    cands.forEach(c=>{if(c.g<0.25||picked.length>=3||c.ks.some(k=>usedK.has(k)))return;c.ks.forEach(k=>usedK.add(k));picked.push(c)});
+    const row={};picked.forEach((c,r)=>c.ks.forEach((k,j)=>row[k]={rank:r+1,t:c.ts[j],c,j}));
+    return{hs,blocks,total,base:ulen(base.concat(clip(hv.map(h=>h[1]),win))),used:u/2,iv,picked,row,O};
+  },[days,types,hol,pt,cfg,rankBy]);
+
+  const lab=k=>{const d=parse(k);return`${WD[d.getDay()]} ${p2(d.getDate())} ${MO[d.getMonth()]}`};
+  const over=R.used>bal;
+  const apply=c=>{const t={...types};c.ks.forEach((k,j)=>t[k]=c.ts[j]);setTypes(t)};
+  const setF=(k,f,v,d)=>{const c={...cfg,[k]:{...cfg[k]}};if(v===dflt(d,f))delete c[k][f];else c[k][f]=v;setCfg(c)};
+  const clear=()=>setTypes({});
+
+  return(<div className="w">
+    <h1>Off & Leave Planner</h1>
+    <div className="m">Weekends and public holidays are out of camp. Offs and leaves share one balance (FULL = 1.0, AM/PM = 0.5). Fridays: FULL only. All times 24H.</div>
+    <div className="c">
+      <div className="m">Total time out of camp (shown range)</div>
+      <div className="tot">{R.total.toFixed(1)} hrs</div>
+      <div className="m">{fh(R.total)} · {(R.total/24).toFixed(1)} days · weekends & public holidays: {R.base.toFixed(1)} hrs · gained from offs: +{(R.total-R.base).toFixed(1)} hrs</div>
+      <div className="m" style={{color:over?"#c0392b":undefined}}>Balance used: {R.used} / {bal} days</div>
+    </div>
+    <div className="c ctl">
+      <label>Start date<input type="date" value={start} onChange={e=>e.target.value&&setStart(e.target.value)}/></label>
+      <label>Days shown<input type="number" min="7" max="90" value={n} onChange={e=>setN(Math.max(7,Math.min(90,+e.target.value||7)))} style={{width:70}}/></label>
+      <label>Balance (days)<input type="number" min="0" step="0.5" value={bal} onChange={e=>setBal(Math.max(0,+e.target.value||0))} style={{width:80}}/></label>
+      <button className="bt" onClick={clear}>Clear offs</button>
+    </div>
+    <div className="c ctl" style={{gap:8}}>
+      <button className={"bt"+(mode==="plan"?" p":"")} onClick={()=>setMode("plan")}>Plan offs</button>
+      <button className={"bt"+(mode==="time"?" p":"")} onClick={()=>setMode("time")}>Edit timings</button>
+      {mode==="time"&&<button className="bt" onClick={()=>setCfg({})}>Reset all timings</button>}
+    </div>
+    {mode==="plan"&&<>
+      {R.picked.length>0&&<div className="c"><b>Top 3 sessions to take</b>
+        <label style={{flexDirection:"row",alignItems:"center",gap:8,margin:"6px 0"}}>Rank by
+          <select value={rankBy} onChange={e=>setRankBy(e.target.value)}><option value="eff">Hours per day of balance used</option><option value="hrs">Most extra hours</option></select></label>
+        <div className="m">Based on your current picks and timings. Highlighted below.</div>
+        {R.picked.map((c,i)=><div className="blk" key={i}>
+          <span><span className="bd">#{i+1}</span>{c.ks.length>1?<><b>PM {lab(c.ks[0])}</b> then <b>AM {lab(c.ks[1])}</b></>:<b>{c.ts[0]} {lab(c.ks[0])}</b>}: <b>{c.g.toFixed(1)}h</b> out of camp (uses {c.ts.reduce((q,t)=>q+COST[t],0)/2} day)</span>
+          <button className="bt p" onClick={()=>apply(c)}>Add</button></div>)}
+      </div>}
+      {R.blocks.length>0&&<div className="c sc"><b>Time out blocks</b>
+        {R.blocks.map((b,i)=><div className="blk" key={i}><span>{fmt(b[0])} → {fmt(b[1])}</span><b>{fh((b[1]-b[0])/36e5)}</b></div>)}
+      </div>}
+      <div className="c sc">
+        <div className="r m"><span>Date</span><span>Type</span><span>Book out → in, or extra time out if taken</span></div>
+        {days.map(d=>{const k=iso(d),t=types[k]||"",w=wk(d),fri=d.getDay()===5,x=R.iv[k],h=R.row[k],o=R.O[k],hh=hol[k],hsg=R.hs[k]||[];
+          const single=h&&h.c.ks.length===1;
+          return(<div key={k} className={"r "+(t||hh?"on ":"")+(w?"we ":"")+(h?"s2":"")}>
+            <span className="d">{WD[d.getDay()]} {p2(d.getDate())} {MO[d.getMonth()]}</span>
+            <select value={hh?"":t} disabled={w||hh} onChange={e=>setTypes({...types,[k]:e.target.value})}>
+              <option value="">{hh?"Public hol.":"—"}</option>{!fri&&<option>AM</option>}{!fri&&<option>PM</option>}<option>FULL</option>
+            </select>
+            <span className="t">{hh?<>Public holiday: {fmtSegs(hsg)}{hsg.length>0&&<> · <b>{hsg.reduce((q,z)=>q+(z[1]-z[0])/36e5,0).toFixed(1)}h</b></>}</>:x?`${fmt(x[0])} → ${fmt(x[1])}`:fri&&!o?"Weekend starts "+tm(d,"eod").replace(":","")+"H":w?"Weekend":""}
+              {h&&<div style={{color:"var(--ac)",fontWeight:700}}><span className="bd">★ #{h.rank}</span>{single?`Take ${h.t}`:h.j===0?"Take PM here, then AM next day":"Take AM here, with PM the day before"}</div>}
+              {o&&<div className="o">
+                {o.opts.map(p=><div key={p.t} style={single&&h.t===p.t?{color:"var(--ac)",fontWeight:700}:null}>{p.t}: {fmtSegs(p.sg)} · <b>{p.g.toFixed(1)}h</b></div>)}
+                {o.pair&&<div style={h&&!single&&h.j===0?{color:"var(--ac)",fontWeight:700}:null}>PM here + AM next day: {fmtSegs(o.pair.sg)} · <b>{o.pair.g.toFixed(1)}h</b></div>}
+              </div>}
+            </span>
+          </div>)})}
+      </div>
+    </>}
+    {mode==="time"&&<div className="c sc">
+      <div className="m" style={{marginBottom:6}}>Type 4 digits (e.g. 1630). Changed values are bold. PT ticked = book-in is the night before. PH ticked = public holiday (out of camp, like a weekend; costs no balance).</div>
+      <div className="r2 m"><span>Date</span><span>PT</span><span>PH</span>{FIELDS.map(([f,l])=><span key={f}>{l}</span>)}</div>
+      {days.filter(d=>!wk(d)).map(d=>{const k=iso(d);
+        return(<div className="r2" key={k}>
+          <span className="d">{WD[d.getDay()]} {p2(d.getDate())} {MO[d.getMonth()]}</span>
+          <input type="checkbox" checked={isPT(d)} onChange={e=>setPt({...pt,[k]:e.target.checked})}/>
+          <input type="checkbox" checked={!!hol[k]} onChange={e=>setHol({...hol,[k]:e.target.checked})}/>
+          {FIELDS.map(([f])=><TI key={f+tm(d,f)} value={tm(d,f)} def={dflt(d,f)} onCommit={v=>setF(k,f,v,d)}/>)}
+        </div>)})}
+    </div>}
+    <div className="m">Defaults: book in 0730H (2130H the night before if PT), morning ends 1130H (PM book-out), afternoon starts 1300H (AM book-in), book out 1700H (1300H Fri; used for FULL/AM the next day). Weekends run from Friday's book-out to Sunday 2130H. A public holiday (set in Edit timings) works like a weekend and costs no balance: you're out from the previous day's book-out until the normal book-in (2130H on the holiday itself if the next day has PT). Back-to-back holidays and weekends are shown without overlap. Results near the edge of the range may be undercounted.</div>
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
